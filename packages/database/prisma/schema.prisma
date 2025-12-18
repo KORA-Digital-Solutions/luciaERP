@@ -1,0 +1,604 @@
+// =============================================================================
+// LuciaERP - Prisma Schema
+// =============================================================================
+// Multi-tenant SaaS ERP
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// CORE: Multi-tenancy
+// =============================================================================
+
+/// Tenant - Cada empresa/organización cliente del SaaS
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Nombre comercial del negocio
+  name      String
+  /// Slug único para subdominio (ej: "clinica-dental-madrid")
+  slug      String   @unique @db.VarChar(100)
+  /// Plan de suscripción activo
+  plan      Plan     @default(STARTER)
+  /// Estado del tenant
+  status    TenantStatus @default(ACTIVE)
+  
+  // Configuración de módulos (feature flags)
+  /// Módulo de inventario/stock activo
+  moduleStock      Boolean @default(false) @map("module_stock")
+  /// Módulo de marketing (campañas email/SMS) activo
+  moduleMarketing  Boolean @default(false) @map("module_marketing")
+  /// Módulo sanitario (historias clínicas) activo - Requiere compliance reforzado
+  moduleHealthcare Boolean @default(false) @map("module_healthcare")
+  /// Módulo de comisiones para empleados activo
+  moduleCommissions Boolean @default(false) @map("module_commissions")
+  
+  // Configuración de compliance
+  /// Si true, se aplican medidas reforzadas de seguridad (MFA obligatorio, etc.)
+  complianceEnhanced Boolean @default(false) @map("compliance_enhanced")
+  /// Periodo de retención de datos en meses (0 = indefinido)
+  dataRetentionMonths Int @default(36) @map("data_retention_months")
+  
+  // Configuración fiscal
+  /// NIF/CIF del negocio
+  taxId       String?  @map("tax_id") @db.VarChar(20)
+  /// Dirección fiscal
+  taxAddress  String?  @map("tax_address")
+  /// Modo Veri*Factu activo
+  verifactuEnabled Boolean @default(false) @map("verifactu_enabled")
+  
+  // Metadatos
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relaciones
+  users          User[]
+  locations      Location[]
+  clients        Client[]
+  services       Service[]
+  appointments   Appointment[]
+  invoices       Invoice[]
+  auditLogs      AuditLog[]
+  
+  @@index([slug])
+  @@index([status])
+  @@map("tenants")
+}
+
+enum Plan {
+  /// Plan gratuito limitado
+  STARTER
+  /// Plan básico para pequeños negocios
+  PROFESSIONAL
+  /// Plan avanzado con todos los módulos
+  BUSINESS
+  /// Plan enterprise con instancia dedicada
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  /// Tenant activo
+  ACTIVE
+  /// Tenant en periodo de prueba
+  TRIAL
+  /// Tenant suspendido por impago
+  SUSPENDED
+  /// Tenant dado de baja (soft delete)
+  CANCELLED
+}
+
+// =============================================================================
+// CORE: Usuarios y Autenticación
+// =============================================================================
+
+/// Usuario del sistema - Puede pertenecer a un tenant o ser admin global
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  
+  /// Email único dentro del tenant
+  email     String   @db.VarChar(255)
+  /// Hash de contraseña (bcrypt)
+  passwordHash String @map("password_hash")
+  
+  // Perfil
+  firstName String   @map("first_name") @db.VarChar(100)
+  lastName  String   @map("last_name") @db.VarChar(100)
+  phone     String?  @db.VarChar(20)
+  avatarUrl String?  @map("avatar_url")
+  
+  // Rol y permisos
+  role      UserRole @default(USER)
+  /// Permisos adicionales en formato JSON
+  permissions Json   @default("[]")
+  
+  // Seguridad
+  /// MFA habilitado para este usuario
+  mfaEnabled   Boolean  @default(false) @map("mfa_enabled")
+  /// Secreto TOTP encriptado
+  mfaSecret    String?  @map("mfa_secret")
+  /// Último login exitoso
+  lastLoginAt  DateTime? @map("last_login_at")
+  /// Intentos de login fallidos consecutivos
+  failedLoginAttempts Int @default(0) @map("failed_login_attempts")
+  /// Cuenta bloqueada hasta esta fecha
+  lockedUntil  DateTime? @map("locked_until")
+  
+  // Estado
+  status    UserStatus @default(ACTIVE)
+  /// Email verificado
+  emailVerified Boolean @default(false) @map("email_verified")
+  
+  // Metadatos
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relaciones
+  tenant         Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens  RefreshToken[]
+  appointments   Appointment[]  @relation("AppointmentProfessional")
+  auditLogs      AuditLog[]
+  
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+enum UserRole {
+  /// Administrador global del SaaS (sin tenant)
+  SUPER_ADMIN
+  /// Dueño/administrador del negocio
+  OWNER
+  /// Manager con acceso amplio
+  MANAGER
+  /// Usuario estándar (recepcionista, etc.)
+  USER
+  /// Profesional sanitario (acceso a datos de salud)
+  HEALTHCARE_PROFESSIONAL
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_VERIFICATION
+}
+
+/// Tokens de refresco para JWT
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  
+  /// Hash del token (no guardamos el token en claro)
+  tokenHash String   @unique @map("token_hash")
+  /// User agent del dispositivo
+  userAgent String?  @map("user_agent")
+  /// IP desde donde se creó
+  ipAddress String?  @map("ip_address")
+  
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  /// Si fue revocado manualmente
+  revokedAt DateTime? @map("revoked_at")
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+// =============================================================================
+// CORE: Ubicaciones/Sedes
+// =============================================================================
+
+/// Ubicación física del negocio (sede, sucursal)
+model Location {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  
+  name      String   @db.VarChar(200)
+  address   String?
+  city      String?  @db.VarChar(100)
+  postalCode String? @map("postal_code") @db.VarChar(10)
+  country   String   @default("ES") @db.VarChar(2)
+  phone     String?  @db.VarChar(20)
+  email     String?  @db.VarChar(255)
+  
+  /// Zona horaria (ej: "Europe/Madrid")
+  timezone  String   @default("Europe/Madrid") @db.VarChar(50)
+  
+  /// Sede principal del negocio
+  isPrimary Boolean  @default(false) @map("is_primary")
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  
+  @@index([tenantId])
+  @@map("locations")
+}
+
+// =============================================================================
+// NEGOCIO: Clientes/Pacientes
+// =============================================================================
+
+/// Cliente del negocio (puede ser paciente si módulo sanitario activo)
+model Client {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  
+  // Datos personales
+  firstName String   @map("first_name") @db.VarChar(100)
+  lastName  String   @map("last_name") @db.VarChar(100)
+  email     String?  @db.VarChar(255)
+  phone     String?  @db.VarChar(20)
+  birthDate DateTime? @map("birth_date") @db.Date
+  gender    Gender?
+  
+  // Dirección
+  address   String?
+  city      String?  @db.VarChar(100)
+  postalCode String? @map("postal_code") @db.VarChar(10)
+  country   String   @default("ES") @db.VarChar(2)
+  
+  // Documentación
+  /// DNI/NIE/Pasaporte
+  documentType DocumentType? @map("document_type")
+  documentNumber String?     @map("document_number") @db.VarChar(20)
+  
+  // Consentimientos RGPD
+  /// Acepta comunicaciones comerciales
+  marketingConsent Boolean   @default(false) @map("marketing_consent")
+  /// Fecha del consentimiento marketing
+  marketingConsentDate DateTime? @map("marketing_consent_date")
+  /// Acepta tratamiento datos de salud (si aplica)
+  healthDataConsent Boolean  @default(false) @map("health_data_consent")
+  /// Fecha del consentimiento datos salud
+  healthDataConsentDate DateTime? @map("health_data_consent_date")
+  
+  // Notas (no sensibles)
+  notes     String?
+  
+  // Estado
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  invoices     Invoice[]
+  
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, lastName, firstName])
+  @@map("clients")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum DocumentType {
+  DNI
+  NIE
+  PASSPORT
+  OTHER
+}
+
+// =============================================================================
+// NEGOCIO: Servicios y Citas
+// =============================================================================
+
+/// Servicio que ofrece el negocio
+model Service {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  
+  name      String   @db.VarChar(200)
+  description String?
+  
+  /// Duración en minutos
+  durationMinutes Int @map("duration_minutes")
+  /// Precio base (sin IVA)
+  priceNet    Decimal @map("price_net") @db.Decimal(10, 2)
+  /// Tipo de IVA aplicable
+  vatType     VatType @default(STANDARD) @map("vat_type")
+  
+  /// Categoría del servicio
+  category    String? @db.VarChar(100)
+  /// Color para mostrar en calendario
+  color       String? @db.VarChar(7)
+  
+  /// Requiere profesional sanitario
+  requiresHealthcareProfessional Boolean @default(false) @map("requires_healthcare_professional")
+  
+  isActive    Boolean @default(true) @map("is_active")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  invoiceLines InvoiceLine[]
+  
+  @@index([tenantId])
+  @@index([tenantId, category])
+  @@map("services")
+}
+
+enum VatType {
+  /// IVA general 21%
+  STANDARD
+  /// IVA reducido 10%
+  REDUCED
+  /// IVA superreducido 4%
+  SUPER_REDUCED
+  /// Exento de IVA
+  EXEMPT
+}
+
+/// Cita/Reserva
+model Appointment {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  
+  clientId     String   @map("client_id") @db.Uuid
+  serviceId    String   @map("service_id") @db.Uuid
+  locationId   String   @map("location_id") @db.Uuid
+  /// Profesional asignado
+  professionalId String? @map("professional_id") @db.Uuid
+  
+  /// Fecha y hora de inicio
+  startTime    DateTime @map("start_time")
+  /// Fecha y hora de fin
+  endTime      DateTime @map("end_time")
+  
+  status       AppointmentStatus @default(SCHEDULED)
+  
+  /// Notas internas (visibles solo para staff)
+  internalNotes String? @map("internal_notes")
+  /// Notas del cliente (de la reserva online)
+  clientNotes   String? @map("client_notes")
+  
+  /// Recordatorio enviado
+  reminderSent  Boolean @default(false) @map("reminder_sent")
+  reminderSentAt DateTime? @map("reminder_sent_at")
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client       Client    @relation(fields: [clientId], references: [id])
+  service      Service   @relation(fields: [serviceId], references: [id])
+  location     Location  @relation(fields: [locationId], references: [id])
+  professional User?     @relation("AppointmentProfessional", fields: [professionalId], references: [id])
+  
+  @@index([tenantId])
+  @@index([tenantId, startTime])
+  @@index([tenantId, clientId])
+  @@index([tenantId, professionalId, startTime])
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// =============================================================================
+// FACTURACIÓN: Facturas (Veri*Factu ready)
+// =============================================================================
+
+/// Factura - Diseñada para cumplir Veri*Factu (RD 1007/2023)
+model Invoice {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  clientId  String?  @map("client_id") @db.Uuid
+  
+  // Numeración
+  /// Serie de factura (ej: "A", "B", "RECT")
+  series       String   @db.VarChar(10)
+  /// Número secuencial dentro de la serie
+  number       Int
+  /// Código completo (ej: "A-2025-00001")
+  invoiceCode  String   @unique @map("invoice_code") @db.VarChar(30)
+  
+  // Tipo de factura
+  type         InvoiceType @default(STANDARD)
+  /// Si es rectificativa, referencia a la original
+  rectifiesInvoiceId String? @map("rectifies_invoice_id") @db.Uuid
+  
+  // Fechas
+  /// Fecha de emisión
+  issueDate    DateTime @map("issue_date") @db.Date
+  /// Fecha de operación (si distinta)
+  operationDate DateTime? @map("operation_date") @db.Date
+  /// Fecha de vencimiento
+  dueDate      DateTime? @map("due_date") @db.Date
+  
+  // Datos fiscales del cliente (snapshot al momento de emisión)
+  customerName    String   @map("customer_name")
+  customerTaxId   String?  @map("customer_tax_id") @db.VarChar(20)
+  customerAddress String?  @map("customer_address")
+  
+  // Importes
+  /// Base imponible total
+  subtotal     Decimal  @db.Decimal(12, 2)
+  /// Total IVA
+  totalVat     Decimal  @map("total_vat") @db.Decimal(12, 2)
+  /// Total factura
+  total        Decimal  @db.Decimal(12, 2)
+  
+  // Estado
+  status       InvoiceStatus @default(DRAFT)
+  
+  // Veri*Factu - Campos de integridad
+  /// Hash SHA-256 del contenido de la factura
+  contentHash  String?  @map("content_hash") @db.VarChar(64)
+  /// Hash del registro anterior (encadenamiento)
+  previousHash String?  @map("previous_hash") @db.VarChar(64)
+  /// Firma electrónica (si modo no VERIFACTU)
+  signature    String?
+  /// Timestamp del registro
+  registeredAt DateTime? @map("registered_at")
+  /// ID de envío a AEAT (si VERIFACTU)
+  aeatSubmissionId String? @map("aeat_submission_id")
+  /// Respuesta de AEAT
+  aeatResponse Json?    @map("aeat_response")
+  
+  // Código QR para verificación
+  qrCode       String?  @map("qr_code")
+  
+  // Metadatos
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client       Client?       @relation(fields: [clientId], references: [id])
+  rectifiesInvoice Invoice?  @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id])
+  rectifiedBy  Invoice[]     @relation("InvoiceRectification")
+  lines        InvoiceLine[]
+  
+  @@unique([tenantId, series, number])
+  @@index([tenantId])
+  @@index([tenantId, issueDate])
+  @@index([tenantId, status])
+  @@index([tenantId, clientId])
+  @@map("invoices")
+}
+
+enum InvoiceType {
+  /// Factura estándar
+  STANDARD
+  /// Factura simplificada (ticket)
+  SIMPLIFIED
+  /// Factura rectificativa
+  RECTIFYING
+}
+
+enum InvoiceStatus {
+  /// Borrador, editable
+  DRAFT
+  /// Emitida, inmutable
+  ISSUED
+  /// Enviada a AEAT (Veri*Factu)
+  SUBMITTED
+  /// Pagada
+  PAID
+  /// Anulada (con rectificativa)
+  CANCELLED
+}
+
+/// Línea de factura
+model InvoiceLine {
+  id         String   @id @default(uuid()) @db.Uuid
+  invoiceId  String   @map("invoice_id") @db.Uuid
+  serviceId  String?  @map("service_id") @db.Uuid
+  
+  /// Descripción del concepto
+  description String
+  /// Cantidad
+  quantity    Decimal  @db.Decimal(10, 3)
+  /// Precio unitario (sin IVA)
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(10, 2)
+  /// Descuento en porcentaje
+  discount    Decimal  @default(0) @db.Decimal(5, 2)
+  /// Tipo de IVA
+  vatType     VatType  @default(STANDARD) @map("vat_type")
+  /// Porcentaje de IVA aplicado
+  vatRate     Decimal  @map("vat_rate") @db.Decimal(5, 2)
+  /// Base imponible de la línea
+  subtotal    Decimal  @db.Decimal(12, 2)
+  /// IVA de la línea
+  vatAmount   Decimal  @map("vat_amount") @db.Decimal(12, 2)
+  /// Total de la línea
+  total       Decimal  @db.Decimal(12, 2)
+  
+  /// Orden de la línea
+  sortOrder   Int      @default(0) @map("sort_order")
+  
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  service     Service? @relation(fields: [serviceId], references: [id])
+  
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+// =============================================================================
+// AUDITORÍA: Logs inmutables
+// =============================================================================
+
+/// Log de auditoría - Registro inmutable de acciones
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  
+  /// Tipo de acción
+  action    AuditAction
+  /// Entidad afectada (ej: "Client", "Invoice")
+  entityType String  @map("entity_type") @db.VarChar(50)
+  /// ID de la entidad afectada
+  entityId  String   @map("entity_id") @db.Uuid
+  
+  /// Datos anteriores (para UPDATE/DELETE)
+  oldValues Json?    @map("old_values")
+  /// Datos nuevos (para CREATE/UPDATE)
+  newValues Json?    @map("new_values")
+  
+  /// IP del usuario
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  /// User agent
+  userAgent String?  @map("user_agent")
+  
+  /// Metadata adicional
+  metadata  Json?
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Sin @@updatedAt - los logs son inmutables
+  
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  EXPORT
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  MFA_ENABLED
+  MFA_DISABLED
+  PASSWORD_CHANGED
+  CONSENT_GIVEN
+  CONSENT_WITHDRAWN
+}

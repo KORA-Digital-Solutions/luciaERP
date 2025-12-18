@@ -1,0 +1,50 @@
+{
+  "name": "lucia-erp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ERP SaaS multi-tenant para belleza, fisioterapia y psicología - Compliance RGPD y Veri*Factu",
+  "author": "LuciaERP Team",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "turbo dev --filter=@lucia/api",
+    "dev:web": "turbo dev --filter=@lucia/web",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "lint:fix": "turbo lint:fix",
+    "test": "turbo test",
+    "test:cov": "turbo test:cov",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean && rimraf node_modules",
+    "db:generate": "pnpm --filter @lucia/database db:generate",
+    "db:migrate": "pnpm --filter @lucia/database db:migrate",
+    "db:migrate:dev": "pnpm --filter @lucia/database db:migrate:dev",
+    "db:push": "pnpm --filter @lucia/database db:push",
+    "db:seed": "pnpm --filter @lucia/database db:seed",
+    "db:studio": "pnpm --filter @lucia/database db:studio",
+    "prepare": "husky || true"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@9.15.1",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "*.{js,ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}
