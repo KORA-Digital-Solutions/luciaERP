@@ -15,7 +15,7 @@ export interface TenantRequest extends Request {
 export class TenantMiddleware implements NestMiddleware {
   constructor(private readonly prisma: PrismaService) {}
 
-  async use(req: TenantRequest, res: Response, next: NextFunction) {
+  async use(req: TenantRequest, _res: Response, next: NextFunction) {
     // Try to get tenant from multiple sources
     const tenantId = this.extractTenantId(req);
     const tenantSlug = this.extractTenantSlug(req);

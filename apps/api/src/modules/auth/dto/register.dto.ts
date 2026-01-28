@@ -11,7 +11,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class RegisterDto {
   @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
-  email: string;
+  email!: string;
 
   @ApiProperty({
     example: 'SecurePassword123!',
@@ -28,19 +28,19 @@ export class RegisterDto {
         'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
     },
   )
-  password: string;
+  password!: string;
 
   @ApiProperty({ example: 'John' })
   @IsString()
   @MinLength(1)
   @MaxLength(100)
-  firstName: string;
+  firstName!: string;
 
   @ApiProperty({ example: 'Doe' })
   @IsString()
   @MinLength(1)
   @MaxLength(100)
-  lastName: string;
+  lastName!: string;
 
   @ApiPropertyOptional({
     example: 'demo-beauty',

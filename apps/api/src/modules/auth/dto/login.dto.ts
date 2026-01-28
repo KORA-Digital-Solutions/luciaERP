@@ -4,12 +4,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class LoginDto {
   @ApiProperty({ example: 'admin@demo-beauty.com' })
   @IsEmail()
-  email: string;
+  email!: string;
 
   @ApiProperty({ example: 'demo123!' })
   @IsString()
   @MinLength(8)
-  password: string;
+  password!: string;
 
   @ApiPropertyOptional({ description: 'MFA code if enabled' })
   @IsOptional()

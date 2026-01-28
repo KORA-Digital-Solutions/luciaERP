@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Req,
-  UseGuards,
   Get,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -16,7 +15,6 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '@/common/decorators/public.decorator';
 import { CurrentUser, CurrentUserData } from '@/common/decorators/current-user.decorator';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })

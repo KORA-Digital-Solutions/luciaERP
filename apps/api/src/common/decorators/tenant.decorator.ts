@@ -8,7 +8,7 @@ import { TenantRequest } from '../middleware/tenant.middleware';
  * findAll(@TenantId() tenantId: string) { ... }
  */
 export const TenantId = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): string | undefined => {
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const request = ctx.switchToHttp().getRequest<TenantRequest>();
     return request.tenantId;
   },
@@ -18,7 +18,7 @@ export const TenantId = createParamDecorator(
  * Decorator to extract tenant slug from request
  */
 export const TenantSlug = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): string | undefined => {
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const request = ctx.switchToHttp().getRequest<TenantRequest>();
     return request.tenantSlug;
   },

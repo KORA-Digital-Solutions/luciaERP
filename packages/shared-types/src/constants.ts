@@ -77,9 +77,11 @@ export const VAT_RATES: Record<string, number> = {
 // =============================================================================
 
 export const PERMISSIONS = {
-  // Tenants
+  // Tenants (Super Admin only)
+  TENANT_CREATE: 'tenant:create',
   TENANT_READ: 'tenant:read',
   TENANT_UPDATE: 'tenant:update',
+  TENANT_DELETE: 'tenant:delete',
   TENANT_MANAGE_BILLING: 'tenant:manage-billing',
 
   // Users
@@ -111,6 +113,8 @@ export const PERMISSIONS = {
   // Invoices
   INVOICE_CREATE: 'invoice:create',
   INVOICE_READ: 'invoice:read',
+  INVOICE_UPDATE: 'invoice:update',
+  INVOICE_DELETE: 'invoice:delete',
   INVOICE_ISSUE: 'invoice:issue',
   INVOICE_CANCEL: 'invoice:cancel',
 

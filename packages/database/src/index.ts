@@ -11,4 +11,4 @@ export {
 } from './client';
 
 // Re-export generated types
-export * from './generated/prisma';
+export * from '@prisma/client';
