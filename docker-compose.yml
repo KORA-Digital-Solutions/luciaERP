@@ -1,0 +1,113 @@
+# =============================================================================
+# LuciaERP - Docker Compose for Local Development
+# =============================================================================
+# Usage:
+#   docker-compose up -d          # Start services
+#   docker-compose down           # Stop services
+#   docker-compose logs -f        # View logs
+#   docker-compose down -v        # Stop and remove volumes (reset data)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: lucia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lucia
+      POSTGRES_PASSWORD: lucia_dev_password
+      POSTGRES_DB: lucia_dev
+      # Performance tuning for development
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: init scripts
+      # - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lucia -d lucia_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lucia-network
+
+  # ---------------------------------------------------------------------------
+  # Redis (Cache & Sessions)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: lucia-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lucia-network
+
+  # ---------------------------------------------------------------------------
+  # pgAdmin (Database GUI) - Optional
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: lucia-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@luciaerp.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lucia-network
+    profiles:
+      - tools
+
+  # ---------------------------------------------------------------------------
+  # Mailhog (Email Testing) - Optional
+  # ---------------------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: lucia-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - lucia-network
+    profiles:
+      - tools
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  lucia-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    name: lucia-postgres-data
+  redis_data:
+    name: lucia-redis-data
+  pgadmin_data:
+    name: lucia-pgadmin-data
