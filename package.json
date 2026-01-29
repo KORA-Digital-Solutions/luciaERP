@@ -6,6 +6,7 @@
   "author": "LuciaERP Team",
   "license": "UNLICENSED",
   "scripts": {
+    "setup": "pnpm install && pnpm db:generate && pnpm build",
     "dev": "turbo dev",
     "dev:api": "turbo dev --filter=@lucia/api",
     "dev:web": "turbo dev --filter=@lucia/web",
